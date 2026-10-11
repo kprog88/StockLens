@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
-  analyze, createFmp, DEMO_COMPANIES, DEMO_HOLDINGS, DEMO_WATCHLIST, demoYesterday, diffReports, ProviderError, withPrice,
+  analyze, createFmp, createOpenData, DEMO_COMPANIES, DEMO_HOLDINGS, DEMO_WATCHLIST, demoYesterday, diffReports, ProviderError, withPrice,
   type Change, type CompanyData, type Holding, type Report, type SearchHit,
 } from '@stocklens/engine';
 import {
@@ -28,6 +28,11 @@ export const isHostedPreview = Platform.OS === 'web' && typeof window !== 'undef
   && !!(window as unknown as { __SL_BASE?: string }).__SL_BASE;
 /** On a deployed website (e.g. Vercel), FMP is reached through the site's own /api/fmp pass-through. */
 const FMP_BASE = webHost && !isLocalWeb && !isHostedPreview ? '/api/fmp/' : undefined;
+/**
+ * Keyless SEC filings + price history. The website goes through its own /api
+ * functions; the phone app calls SEC EDGAR and Yahoo directly.
+ */
+const OPEN_DATA = Platform.OS !== 'web' ? createOpenData() : FMP_BASE ? createOpenData({ proxyBase: '/api/' }) : undefined;
 export const PREVIEW_MESSAGE = "This browser preview can't connect to live data: its host blocks requests to other websites. Your key is probably fine. Run the app on your phone with Expo Go (npm run mobile) and paste it there.";
 
 export interface Position extends Holding {
@@ -110,7 +115,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   const update = useCallback((fn: (s: Persisted) => Persisted) => setP((s) => fn(s)), []);
 
   const mode: Mode = p.apiKey ? 'live' : 'demo';
-  const fmp = useMemo(() => (p.apiKey ? createFmp({ apiKey: p.apiKey, baseUrl: FMP_BASE }) : null), [p.apiKey]);
+  const fmp = useMemo(() => (p.apiKey ? createFmp({ apiKey: p.apiKey, baseUrl: FMP_BASE, open: OPEN_DATA }) : null), [p.apiKey]);
 
   // --- data --------------------------------------------------------------------
   const holdingsList: Holding[] = mode === 'live' ? p.holdings : DEMO_HOLDINGS;

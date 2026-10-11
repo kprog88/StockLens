@@ -7,6 +7,7 @@
 // "not disclosed" and lowers confidence instead of guessing.
 
 import type { AnnualFinancials, CompanyData, QuarterResult } from '../types';
+import type { OpenData } from './open';
 
 type Json = Record<string, unknown>;
 type Fetch = (url: string) => Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>;
@@ -39,7 +40,7 @@ const str = (o: Json | undefined, ...keys: string[]): string | null => {
 };
 const abs0 = (x: number | null) => Math.abs(x ?? 0);
 
-export function createFmp(opts: { apiKey: string; fetch?: Fetch; baseUrl?: string; now?: () => Date }) {
+export function createFmp(opts: { apiKey: string; fetch?: Fetch; baseUrl?: string; now?: () => Date; open?: OpenData }) {
   const base = (opts.baseUrl ?? 'https://financialmodelingprep.com/stable/').replace(/\/?$/, '/');
   const f: Fetch = opts.fetch ?? ((u) => fetch(u) as unknown as ReturnType<Fetch>);
   const now = opts.now ?? (() => new Date());
@@ -100,6 +101,18 @@ export function createFmp(opts: { apiKey: string; fetch?: Fetch; baseUrl?: strin
   }
 
   async function quote(symbol: string): Promise<Quote> {
+    try {
+      return await fmpQuote(symbol);
+    } catch (e) {
+      // Free FMP plans don't quote every symbol; fall back to the keyless price feed.
+      if (!opts.open || !(e instanceof ProviderError) || (e.kind !== 'plan' && e.kind !== 'not-found')) throw e;
+      const last = (await opts.open.prices(symbol, '5d').catch(() => null))?.last;
+      if (!last) throw e;
+      return { symbol, price: last.price, changePct: last.changePct, at: last.at };
+    }
+  }
+
+  async function fmpQuote(symbol: string): Promise<Quote> {
     const [q] = await get('quote', { symbol });
     const price = num(q, 'price');
     if (!q || price === null) throw new ProviderError(`No quote found for ${symbol}.`, 'not-found');
@@ -110,21 +123,33 @@ export function createFmp(opts: { apiKey: string; fetch?: Fetch; baseUrl?: strin
   async function company(symbol: string): Promise<CompanyData> {
     const s = symbol.toUpperCase();
     const from = new Date(now().getTime() - 5.1 * 365 * 864e5).toISOString().slice(0, 10);
-    const [profile, incA, balA, cfA, incQ, balQ, cfQ, earnings, prices, q] = await Promise.all([
-      get('profile', { symbol: s }),
-      statements('income-statement', { symbol: s, period: 'annual', limit: 5 }),
-      optional(statements('balance-sheet-statement', { symbol: s, period: 'annual', limit: 5 })),
-      optional(statements('cash-flow-statement', { symbol: s, period: 'annual', limit: 5 })),
-      optional(get('income-statement', { symbol: s, period: 'quarter', limit: 8 })),
-      optional(get('balance-sheet-statement', { symbol: s, period: 'quarter', limit: 1 })),
-      optional(get('cash-flow-statement', { symbol: s, period: 'quarter', limit: 8 })),
+    // 1. Financial statements: SEC filings first (free, every US company), FMP as fallback.
+    const sec = opts.open ? await opts.open.statements(s).catch(() => null) : null;
+    const useSec = !!sec && sec.incA.filter((r) => r.revenue != null || r.netIncome != null).length >= 4;
+    const fmpOnly = (p: Promise<Json[]>) => (useSec ? Promise.resolve([] as Json[]) : p);
+    const [profile, incA, balA, cfA, incQ, balQ, cfQ, earnings, fmpPrices, q] = await Promise.all([
+      useSec ? optional(get('profile', { symbol: s })) : get('profile', { symbol: s }),
+      useSec ? sec!.incA : statements('income-statement', { symbol: s, period: 'annual', limit: 5 }),
+      useSec ? sec!.balA : optional(statements('balance-sheet-statement', { symbol: s, period: 'annual', limit: 5 })),
+      useSec ? sec!.cfA : optional(statements('cash-flow-statement', { symbol: s, period: 'annual', limit: 5 })),
+      useSec ? sec!.incQ : optional(get('income-statement', { symbol: s, period: 'quarter', limit: 8 })),
+      useSec ? sec!.balQ : optional(get('balance-sheet-statement', { symbol: s, period: 'quarter', limit: 1 })),
+      useSec ? sec!.cfQ : optional(get('cash-flow-statement', { symbol: s, period: 'quarter', limit: 8 })),
       optional(get('earnings', { symbol: s, limit: 20 })),
-      optional(get('historical-price-eod/light', { symbol: s, from })),
+      fmpOnly(optional(get('historical-price-eod/light', { symbol: s, from }))),
       quote(s),
     ]);
-    const p = profile[0];
+    // 2. Price history: FMP when it has it, otherwise the keyless daily feed.
+    let prices = fmpPrices;
+    let priceSource = 'FMP';
+    if (prices.length < 200 && opts.open) {
+      const open = await opts.open.prices(s, '6y').catch(() => null);
+      if (open && open.prices.length > prices.length) { prices = open.prices as unknown as Json[]; priceSource = 'Yahoo Finance'; }
+    }
+    const p = profile[0] ?? (useSec ? { companyName: sec!.name, currency: sec!.currency, exchange: '' } : undefined);
     if (!p) throw new ProviderError(`${s} was not found on FMP.`, 'not-found');
-    return mapCompany(s, { p, incA, balA, cfA, incQ, balQ, cfQ, earnings, prices, q, today: now() });
+    const source = useSec ? `SEC EDGAR filings · prices ${priceSource}` : undefined;
+    return mapCompany(s, { p, incA, balA, cfA, incQ, balQ, cfQ, earnings, prices, q, today: now(), source });
   }
 
   return { search, quote, company };
@@ -178,6 +203,8 @@ function quarterLabel(dateStr: string): string {
 export interface RawCompany {
   p: Json; incA: Json[]; balA: Json[]; cfA: Json[]; incQ: Json[]; balQ: Json[]; cfQ: Json[];
   earnings: Json[]; prices: Json[]; q: Quote; today: Date;
+  /** Overrides the source line, e.g. when statements came from SEC filings. */
+  source?: string;
 }
 
 export function mapCompany(symbol: string, r: RawCompany): CompanyData {
@@ -255,7 +282,7 @@ export function mapCompany(symbol: string, r: RawCompany): CompanyData {
     currency: str(r.p, 'currency') ?? 'USD',
     price: r.q.price,
     asOf: r.today.toISOString().slice(0, 10),
-    source: `Financial Modeling Prep · statements to ${str(hasLtm ? incQ[3] : lastFy, 'date') ?? 'latest'}`,
+    source: `${r.source ?? 'Financial Modeling Prep'} · statements to ${str(hasLtm ? incQ[3] : lastFy, 'date') ?? 'latest'}`,
     annuals,
     quarters,
     peHistory,

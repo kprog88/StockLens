@@ -104,6 +104,18 @@ apps/mobile/src/
 3. **Peers** — compare each metric with industry medians on the Learn cards.
 4. **Backtest** the verdict thresholds on 5 years of history before trusting them with money.
 
+## Where the data comes from
+
+| Data | Source | Key needed |
+|---|---|---|
+| Financial statements (annual + quarterly) | **SEC EDGAR** XBRL company facts — every US-listed company | No |
+| Price history (for the valuation bands) | FMP when the plan allows, else **Yahoo Finance** (Stooq as fallback) | No |
+| Search, live quote, profile, logo | **Financial Modeling Prep** | Free FMP key |
+
+FMP's free plan only serves full statements for a sample of ~87 symbols, so StockLens reads statements straight from SEC filings (`packages/engine/src/providers/sec.ts`) and only falls back to FMP for non-SEC filers. On the web these go through `api/sec.ts` and `api/prices.ts` (cached on Vercel's CDN); the phone app calls them directly.
+
+Optional: set `SEC_USER_AGENT` in Vercel → Settings → Environment Variables to `StockLens your@email.com`, as the SEC asks automated tools to identify themselves.
+
 ## Deploying the web version (Vercel)
 
 The repo is ready for Vercel. `vercel.json` sets everything up:

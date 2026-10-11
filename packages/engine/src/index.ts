@@ -8,3 +8,5 @@ export { diffReports, type Change } from './diff';
 export { money, pct, mult } from './util';
 export { createFmp, logoUrlFor, mapCompany, withPrice, ProviderError, type SearchHit, type Quote, type RawCompany } from './providers/fmp';
 export { DEMO_COMPANIES, DEMO_HOLDINGS, DEMO_WATCHLIST, demoYesterday, type Holding } from './demo';
+export { createOpenData, DEFAULT_SEC_USER_AGENT, type OpenData } from './providers/open';
+export { compactFacts, secStatements, cikFor, parseYahooChart, parseStooqCsv, type CompactFacts, type SecStatements, type PriceSeries } from './providers/sec';

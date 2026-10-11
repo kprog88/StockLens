@@ -66,7 +66,7 @@ function LiveData() {
             style={{ minHeight: 50, borderRadius: 14, borderWidth: OUTLINE, borderColor: c.outline, backgroundColor: c.surface, paddingHorizontal: 14, fontFamily: fonts.mono, fontSize: 15, color: c.text }}
           />
           <Button label={busy ? 'Checking key…' : 'Connect'} kind="accent" disabled={busy || key.trim().length < 8} onPress={save} />
-          <Txt v="caption" tone="faint">The free plan allows about 250 requests a day: enough for a portfolio of 10–15 stocks. Some exchanges and endpoints need a paid plan.</Txt>
+          <Txt v="caption" tone="faint">FMP is used for search, live prices and logos (free plan: about 250 requests a day). Financial statements for US companies come free from official SEC filings, so any US stock works.</Txt>
         </>
       )}
       {msg && <Txt v="bodySm" tone={msg.ok ? 'up' : 'down'}>{msg.text}</Txt>}
