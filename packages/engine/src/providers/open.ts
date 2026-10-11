@@ -16,7 +16,8 @@ export interface OpenData {
   prices(symbol: string, range: '5d' | '6y'): Promise<PriceSeries>;
 }
 
-export const DEFAULT_SEC_USER_AGENT = 'StockLens/1.0 (personal stock analysis app; github.com/kprog88/StockLens)';
+// The SEC asks for a company/app name plus a contact email in the User-Agent.
+export const DEFAULT_SEC_USER_AGENT = 'StockLens kprog88@users.noreply.github.com';
 
 export function createOpenData(opts: { fetch?: HttpFetch; proxyBase?: string; userAgent?: string } = {}): OpenData {
   const f: HttpFetch = opts.fetch ?? ((u, init) => fetch(u, init) as unknown as ReturnType<HttpFetch>);
@@ -27,7 +28,11 @@ export function createOpenData(opts: { fetch?: HttpFetch; proxyBase?: string; us
   async function json(url: string, init?: { headers?: Record<string, string> }) {
     const r = await f(url, init);
     if (r.status === 404) return null;
-    if (!r.ok) throw new Error(`HTTP ${r.status} from ${url.split('?')[0]}`);
+    if (!r.ok) {
+      let detail = '';
+      try { detail = String(((await r.json()) as { error?: string })?.error ?? ''); } catch { /* no body */ }
+      throw new Error(detail || `HTTP ${r.status} from ${url.split('?')[0]}`);
+    }
     return r.json();
   }
 

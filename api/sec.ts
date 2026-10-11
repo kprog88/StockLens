@@ -9,7 +9,7 @@ import { cikFor, compactFacts, companyFactsUrl, SEC_TICKERS_URL, secStatements }
 
 // The SEC asks automated tools to identify themselves. Set SEC_USER_AGENT in
 // Vercel to "StockLens your@email.com" to follow their policy exactly.
-const UA = process.env.SEC_USER_AGENT || 'StockLens/1.0 (personal stock analysis app; github.com/kprog88/StockLens)';
+const UA = process.env.SEC_USER_AGENT || 'StockLens kprog88@users.noreply.github.com';
 const headers = { 'User-Agent': UA, Accept: 'application/json' };
 let tickers: { at: number; data: unknown } | null = null;
 
@@ -22,7 +22,7 @@ export default async function handler(req: any, res: any) {
   try {
     if (!tickers || Date.now() - tickers.at > 864e5) {
       const r = await fetch(SEC_TICKERS_URL, { headers });
-      if (!r.ok) throw new Error(`SEC ticker list returned ${r.status}`);
+      if (!r.ok) throw new Error(`SEC ticker list returned ${r.status}${r.status === 403 ? ' (it wants a contact email: set SEC_USER_AGENT in Vercel)' : ''}`);
       tickers = { at: Date.now(), data: await r.json() };
     }
     const hit = cikFor(tickers.data, ticker);
@@ -36,7 +36,7 @@ export default async function handler(req: any, res: any) {
       res.status(404).json({ error: `No XBRL financial data on EDGAR for ${ticker.toUpperCase()}.` });
       return;
     }
-    if (!r.ok) throw new Error(`SEC EDGAR returned ${r.status}`);
+    if (!r.ok) throw new Error(`SEC EDGAR returned ${r.status}${r.status === 403 ? ' (it wants a contact email: set SEC_USER_AGENT in Vercel)' : ''}`);
     const facts = compactFacts(await r.json());
     res.setHeader('cache-control', 'public, s-maxage=43200, stale-while-revalidate=86400');
     if (req.query.view === 'statements') {

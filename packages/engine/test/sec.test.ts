@@ -127,6 +127,18 @@ describe('SEC EDGAR statements', () => {
     expect(p.last!.changePct).not.toBeNull();
   });
 
+  it('says why SEC filings could not be used when FMP also refuses', async () => {
+    const fetch = async (url: string) => {
+      const u = new URL(url, 'https://stocklens.test');
+      if (u.pathname === '/api/sec') return { ok: false, status: 502, json: async () => ({ error: 'SEC EDGAR returned 403' }) };
+      if (u.pathname.endsWith('/profile')) return { ok: true, status: 200, json: async () => [{ symbol: 'GMMA', companyName: 'Gamma Inc.' }] };
+      if (u.pathname.endsWith('/quote')) return { ok: true, status: 200, json: async () => [{ symbol: 'GMMA', price: 10 }] };
+      return { ok: false, status: 402, json: async () => ({}) };
+    };
+    const fmp = createFmp({ apiKey: 'k', fetch, open: createOpenData({ fetch, proxyBase: 'https://stocklens.test/api/' }) });
+    await expect(fmp.company('GMMA')).rejects.toThrow(/SEC filings couldn't be used either: SEC EDGAR returned 403/);
+  });
+
   it('analyses a stock FMP\'s free plan refuses, using SEC + Yahoo', async () => {
     const compact = compactFacts(facts());
     const fetch = async (url: string) => {

@@ -124,10 +124,13 @@ export function createFmp(opts: { apiKey: string; fetch?: Fetch; baseUrl?: strin
     const s = symbol.toUpperCase();
     const from = new Date(now().getTime() - 5.1 * 365 * 864e5).toISOString().slice(0, 10);
     // 1. Financial statements: SEC filings first (free, every US company), FMP as fallback.
-    const sec = opts.open ? await opts.open.statements(s).catch(() => null) : null;
+    let secProblem = '';
+    const sec = opts.open ? await opts.open.statements(s).catch((e: Error) => { secProblem = e.message; return null; }) : null;
+    if (opts.open && !sec && !secProblem) secProblem = `${s} isn't in SEC EDGAR (not a US filer)`;
     const useSec = !!sec && sec.incA.filter((r) => r.revenue != null || r.netIncome != null).length >= 4;
     const fmpOnly = (p: Promise<Json[]>) => (useSec ? Promise.resolve([] as Json[]) : p);
-    const [profile, incA, balA, cfA, incQ, balQ, cfQ, earnings, fmpPrices, q] = await Promise.all([
+    if (sec && !useSec) secProblem = `SEC filings for ${s} have fewer than 4 years of statements`;
+    const loaded = Promise.all([
       useSec ? optional(get('profile', { symbol: s })) : get('profile', { symbol: s }),
       useSec ? sec!.incA : statements('income-statement', { symbol: s, period: 'annual', limit: 5 }),
       useSec ? sec!.balA : optional(statements('balance-sheet-statement', { symbol: s, period: 'annual', limit: 5 })),
@@ -139,6 +142,10 @@ export function createFmp(opts: { apiKey: string; fetch?: Fetch; baseUrl?: strin
       fmpOnly(optional(get('historical-price-eod/light', { symbol: s, from }))),
       quote(s),
     ]);
+    const [profile, incA, balA, cfA, incQ, balQ, cfQ, earnings, fmpPrices, q] = await loaded.catch((e) => {
+      if (e instanceof ProviderError && e.kind === 'plan' && secProblem) throw new ProviderError(`${e.message} SEC filings couldn't be used either: ${secProblem}.`, 'plan');
+      throw e;
+    });
     // 2. Price history: FMP when it has it, otherwise the keyless daily feed.
     let prices = fmpPrices;
     let priceSource = 'FMP';
