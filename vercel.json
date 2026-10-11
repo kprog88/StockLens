@@ -1,0 +1,10 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "installCommand": "npm install",
+  "buildCommand": "npm run build:web",
+  "outputDirectory": "apps/mobile/dist",
+  "rewrites": [
+    { "source": "/api/fmp/:path*", "destination": "/api/fmp?path=:path*" },
+    { "source": "/((?!api/).*)", "destination": "/index.html" }
+  ]
+}

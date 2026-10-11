@@ -1,0 +1,14 @@
+{
+  "name": "stocklens",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "test": "npm run test -w @stocklens/engine",
+    "typecheck": "npm run typecheck -w @stocklens/engine && npm run typecheck -w mobile",
+    "mobile": "npm run start -w mobile",
+    "build:web": "npm run build:web -w mobile"
+  }
+}
