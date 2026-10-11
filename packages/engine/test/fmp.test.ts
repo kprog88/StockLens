@@ -90,6 +90,26 @@ describe('FMP adapter', () => {
     expect(() => analyze(d)).not.toThrow();
   });
 
+  it('works on the free plan (402 for quarters, earnings and limits above 5)', async () => {
+    const base = mockFetch().fetch;
+    const calls: string[] = [];
+    const premium = { ok: false, status: 402, json: async () => ({ 'Error Message': 'Premium Query Parameter' }) };
+    const fetch = async (url: string) => {
+      calls.push(url);
+      const u = new URL(url);
+      if (u.searchParams.get('period') === 'quarter' || u.pathname.endsWith('/earnings') || Number(u.searchParams.get('limit')) > 5) return premium;
+      return base(url);
+    };
+    const d = await createFmp({ apiKey: 'k', fetch, now: fixedNow }).company('ACME');
+    expect(calls.some((c) => c.includes('income-statement') && c.includes('limit=5'))).toBe(true);
+    expect(() => analyze(d)).not.toThrow();
+  });
+
+  it('explains a plan limit on a required endpoint', async () => {
+    const { fetch } = mockFetch({ profile: { status: 402, body: { 'Error Message': 'Premium endpoint' } } });
+    await expect(createFmp({ apiKey: 'k', fetch }).company('ACME')).rejects.toMatchObject({ kind: 'plan', message: expect.stringContaining('profile') });
+  });
+
   it('reports a rejected key clearly', async () => {
     const { fetch } = mockFetch({ profile: { status: 401, body: { 'Error Message': 'Invalid API KEY.' } } });
     await expect(createFmp({ apiKey: 'bad', fetch }).company('ACME')).rejects.toMatchObject({ kind: 'auth' });

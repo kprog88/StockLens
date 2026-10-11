@@ -54,7 +54,11 @@ export function createFmp(opts: { apiKey: string; fetch?: Fetch; baseUrl?: strin
       throw new ProviderError('Could not reach Financial Modeling Prep. Check your internet connection and try again.', 'network');
     }
     if (res.status === 401) throw new ProviderError('FMP rejected this key. Copy it again from your FMP dashboard — no spaces — and check your email is verified.', 'auth');
-    if (res.status === 403) throw new ProviderError('This data needs a paid FMP plan (free plans cover mainly US stocks).', 'plan');
+    if (res.status === 402 || res.status === 403) {
+      let detail = '';
+      try { detail = str((await res.json()) as Json, 'Error Message', 'error', 'message') ?? ''; } catch { /* no body */ }
+      throw new ProviderError(`Your FMP plan doesn't include ${path.replace(/-/g, ' ')} data${detail ? ` (${detail.slice(0, 160)})` : ''}. Free plans cover mainly US stocks and the last 5 years.`, 'plan');
+    }
     if (res.status === 429) throw new ProviderError('Daily FMP request limit reached. Prices will refresh again tomorrow.', 'limit');
     if (!res.ok) throw new ProviderError(`FMP returned an error (${res.status}).`, 'network');
     const body = await res.json();
@@ -70,6 +74,17 @@ export function createFmp(opts: { apiKey: string; fetch?: Fetch; baseUrl?: strin
     if (e instanceof ProviderError && (e.kind === 'auth' || e.kind === 'limit' || e.kind === 'network')) throw e;
     return [] as Json[];
   });
+
+  /** Free FMP plans cap `limit` at 5 for statements; fall back to the plan's default instead of failing. */
+  async function statements(path: string, params: Record<string, string | number>): Promise<Json[]> {
+    try {
+      return await get(path, params);
+    } catch (e) {
+      if (!(e instanceof ProviderError) || e.kind !== 'plan' || !('limit' in params)) throw e;
+      const { limit: _drop, ...rest } = params;
+      return get(path, rest);
+    }
+  }
 
   async function search(query: string): Promise<SearchHit[]> {
     if (query.trim().length < 1) return [];
@@ -97,9 +112,9 @@ export function createFmp(opts: { apiKey: string; fetch?: Fetch; baseUrl?: strin
     const from = new Date(now().getTime() - 5.1 * 365 * 864e5).toISOString().slice(0, 10);
     const [profile, incA, balA, cfA, incQ, balQ, cfQ, earnings, prices, q] = await Promise.all([
       get('profile', { symbol: s }),
-      get('income-statement', { symbol: s, period: 'annual', limit: 6 }),
-      optional(get('balance-sheet-statement', { symbol: s, period: 'annual', limit: 6 })),
-      optional(get('cash-flow-statement', { symbol: s, period: 'annual', limit: 6 })),
+      statements('income-statement', { symbol: s, period: 'annual', limit: 5 }),
+      optional(statements('balance-sheet-statement', { symbol: s, period: 'annual', limit: 5 })),
+      optional(statements('cash-flow-statement', { symbol: s, period: 'annual', limit: 5 })),
       optional(get('income-statement', { symbol: s, period: 'quarter', limit: 8 })),
       optional(get('balance-sheet-statement', { symbol: s, period: 'quarter', limit: 1 })),
       optional(get('cash-flow-statement', { symbol: s, period: 'quarter', limit: 8 })),
